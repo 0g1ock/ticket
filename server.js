@@ -231,6 +231,19 @@ app.get('/api/reports/events-stats', authenticateToken, requireRole('admin'), as
         res.status(500).json({ error: 'Ошибка формирования отчета по мероприятиям' });
     }
 });
+// Временный маршрут для создания гарантированного админа
+app.post('/api/auth/make-admin', async (req, res) => {
+    try {
+        const hash = await bcrypt.hash('admin123', 10);
+        await pool.query(
+            'INSERT INTO users (fio, email, password_hash, role) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = VALUES(role)',
+            ['Администратор', 'real_admin@ticket.ru', hash, 'admin']
+        );
+        res.json({ message: 'Админ успешно создан/обновлен!', email: 'real_admin@ticket.ru', password: 'admin123' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 // Запуск сервера
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
