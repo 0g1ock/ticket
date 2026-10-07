@@ -202,7 +202,35 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Ошибка оформления заказа' });
     }
 });
-
+// ==========================================
+// ЗАДАНИЕ 6: ВТОРОЙ СТАТИСТИЧЕСКИЙ ОТЧЕТ
+// GET /api/reports/events-stats — Аналитика по мероприятиям
+// ==========================================
+app.get('/api/reports/events-stats', authenticateToken, requireRole('admin'), async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT 
+                e.id AS event_id,
+                e.title AS event_title,
+                e.category,
+                COUNT(DISTINCT s.id) AS total_sessions,
+                COUNT(t.id) AS total_tickets_sold
+            FROM events e
+            LEFT JOIN sessions s ON e.id = s.event_id
+            LEFT JOIN tickets t ON s.id = t.session_id
+            GROUP BY e.id, e.title, e.category
+            ORDER BY total_tickets_sold DESC
+        `);
+        
+        res.json({
+            report_name: 'Отчет по популярности мероприятий',
+            events_analytics: rows
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Ошибка формирования отчета по мероприятиям' });
+    }
+});
 // Запуск сервера
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
