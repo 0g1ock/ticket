@@ -1,118 +1,63 @@
 require('dotenv').config();
 const mysql = require('mysql2/promise');
 
-
-const pool = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'ticket_booking',
-    waitForConnections: true,
-    connectionLimit: 10
-});
-
-
-async function createEvent(title, category) {
-    try {
-        const [result] = await pool.query(
-            'INSERT INTO events (title, category) VALUES (?, ?)',
-            [title, category]
-        );
-        console.log(`[CREATE] Мероприятие успешно создано с ID: ${result.insertId}`);
-        return result.insertId;
-    } catch (err) {
-        console.error('[CREATE ERROR] Ошибка при создании:', err.message);
-        return null;
-    }
-}
-
-
-async function getAllEvents() {
-    try {
-        const [rows] = await pool.query('SELECT * FROM events');
-        console.log(`[READ ALL] Получено мероприятий из базы: ${rows.length}`);
-        return rows;
-    } catch (err) {
-        console.error('[READ ERROR] Ошибка при получении списка:', err.message);
-        return [];
-    }
-}
-
-async function getEventById(id) {
-    try {
-        const [rows] = await pool.query('SELECT * FROM events WHERE id = ?', [id]);
-        if (rows.length === 0) {
-            console.log(`[READ ONE] Мероприятие с ID ${id} не найдено.`);
-            return null;
-        }
-        console.log(`[READ ONE] Найдено мероприятие: "${rows[0].title}"`);
-        return rows[0];
-    } catch (err) {
-        console.error('[READ ERROR] Ошибка при поиске по ID:', err.message);
-        return null;
-    }
-}
-
-
-async function updateEvent(id, newTitle, newCategory) {
-    try {
-        const [result] = await pool.query(
-            'UPDATE events SET title = COALESCE(?, title), category = COALESCE(?, category) WHERE id = ?',
-            [newTitle, newCategory, id]
-        );
-        if (result.affectedRows === 0) {
-            console.log(`[UPDATE] Мероприятие с ID ${id} не найдено для обновления.`);
-            return false;
-        }
-        console.log(`[UPDATE] Мероприятие с ID ${id} успешно обновлено.`);
-        return true;
-    } catch (err) {
-        console.error('[UPDATE ERROR] Ошибка обновления:', err.message);
-        return false;
-    }
-}
-
-
-async function deleteEvent(id) {
-    try {
-        const [result] = await pool.query('DELETE FROM events WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
-            console.log(`[DELETE] Мероприятие с ID ${id} не найдено для удаления.`);
-            return false;
-        }
-        console.log(`[DELETE] Мероприятие с ID ${id} успешно удалено.`);
-        return true;
-    } catch (err) {
-        console.error('[DELETE ERROR] Ошибка удаления:', err.message);
-        return false;
-    }
-}
-
-
 async function runCrudTest() {
-    console.log(' ЗАПУСК ТЕСТИРОВАНИЯ CRUD-ОПЕРАЦИЙ\n');
+    const pool = await mysql.createPool({
+        host: process.env.DB_HOST || 'localhost',
+        user: process.env.DB_USER || 'root',
+        password: process.env.DB_PASSWORD || '', // Если у тебя есть пароль, укажи его здесь или в .env
+        database: process.env.DB_NAME || 'ticket_booking'
+    });
 
-   
-    const newId = await createEvent('Тестовый спектакль', 'Театр');
+    console.log('ЗАПУСК ТЕСТИРОВАНИЯ CRUD-ОПЕРАЦИЙ (Мероприятия, Залы, Заказы)');
 
-    
-    await getAllEvents();
+    try {
+        // --- 1. CRUD ДЛЯ МЕРОПРИЯТИЙ (events) ---
+        const [eventRes] = await pool.query('INSERT INTO events (title, category_id) VALUES (?, ?)', ['Тестовый спектакль', 2]);
+        const eventId = eventRes.insertId;
+        console.log(`[CREATE EVENT] Мероприятие создано с ID: ${eventId}`);
 
-   
-    await getEventById(newId);
+        const [events] = await pool.query('SELECT * FROM events WHERE id = ?', [eventId]);
+        console.log(`[READ EVENT] Найдено: "${events[0].title}"`);
 
-  
-    await getEventById(99999);
+        await pool.query('UPDATE events SET title = ? WHERE id = ?', ['Обновленный спектакль', eventId]);
+        console.log(`[UPDATE EVENT] Мероприятие с ID ${eventId} обновлено.`);
 
-    
-    await updateEvent(newId, 'Обновленный спектакль', 'Театр и Шоу');
+        // --- 2. CRUD ДЛЯ ЗАЛОВ (halls) ---
+        const [hallRes] = await pool.query('INSERT INTO halls (name, capacity) VALUES (?, ?)', ['Тестовый зал', 100]);
+        const hallId = hallRes.insertId;
+        console.log(`[CREATE HALL] Зал создан с ID: ${hallId}`);
 
-    
-    await deleteEvent(newId);
+        const [halls] = await pool.query('SELECT * FROM halls WHERE id = ?', [hallId]);
+        console.log(`[READ HALL] Найден зал: "${halls[0].name}" (мест: ${halls[0].capacity})`);
 
-    console.log('\n ТЕСТИРОВАНИЕ УСПЕШНО ЗАВЕРШЕНО ');
-    process.exit(0);
+        await pool.query('UPDATE halls SET capacity = ? WHERE id = ?', [120, hallId]);
+        console.log(`[UPDATE HALL] Зал с ID ${hallId} обновлен.`);
+
+        // --- 3. CRUD ДЛЯ ЗАКАЗОВ (orders) ---
+        const [orderRes] = await pool.query('INSERT INTO orders (user_id, status_id) VALUES (?, ?)', [2, 1]);
+        const orderId = orderRes.insertId;
+        console.log(`[CREATE ORDER] Заказ создан с ID: ${orderId}`);
+
+        const [orders] = await pool.query('SELECT * FROM orders WHERE id = ?', [orderId]);
+        console.log(`[READ ORDER] Заказ ID ${orders[0].id}, статус ID: ${orders[0].status_id}`);
+
+        await pool.query('UPDATE orders SET status_id = ? WHERE id = ?', [2, orderId]);
+        console.log(`[UPDATE ORDER] Статус заказа ID ${orderId} изменен на оплачен.`);
+
+        // Очистка тестовых данных
+        await pool.query('DELETE FROM orders WHERE id = ?', [orderId]);
+        await pool.query('DELETE FROM halls WHERE id = ?', [hallId]);
+        await pool.query('DELETE FROM events WHERE id = ?', [eventId]);
+        console.log('[DELETE] Все тестовые записи успешно удалены.');
+
+    } catch (err) {
+        console.error('Ошибка в CRUD тесте:', err.message);
+    } finally {
+        await pool.end();
+        console.log('\nТЕСТИРОВАНИЕ УСПЕШНО ЗАВЕРШЕНО');
+        process.exit(0);
+    }
 }
-
 
 runCrudTest();
