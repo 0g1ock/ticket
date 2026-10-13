@@ -72,6 +72,26 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // --- CRUD МЕРОПРИЯТИЙ (С учетом таблицы категорий) ---
+// --- ЭКСПОРТ CSV ---
+
+app.get('/api/events/export', authenticateToken, async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT e.id, e.title, ec.name AS category 
+            FROM events e 
+            JOIN event_categories ec ON e.category_id = ec.id
+        `);
+        let csvContent = 'ID;Название;Категория\n';
+        rows.forEach(row => {
+            csvContent += `${row.id};"${row.title}";"${row.category}"\n`;
+        });
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="events_list.csv"');
+        res.send('\uFEFF' + csvContent);
+    } catch (err) {
+        res.status(500).json({ error: 'Ошибка выгрузки CSV' });
+    }
+});
 
 // Получение списка всех мероприятий (сJOIN категории)
 app.get('/api/events', async (req, res) => {
@@ -124,24 +144,39 @@ app.post('/api/events', authenticateToken, requireRole('admin'), async (req, res
     }
 });
 
-// --- ЭКСПОРТ CSV ---
+// --- CRUD / Эндпоинты для управления залами (Задание 4) ---
 
-app.get('/api/events/export', authenticateToken, async (req, res) => {
+// Получение списка всех залов (публичный)
+app.get('/api/halls', async (req, res) => {
     try {
-        const [rows] = await pool.query(`
-            SELECT e.id, e.title, ec.name AS category 
-            FROM events e 
-            JOIN event_categories ec ON e.category_id = ec.id
-        `);
-        let csvContent = 'ID;Название;Категория\n';
-        rows.forEach(row => {
-            csvContent += `${row.id};"${row.title}";"${row.category}"\n`;
-        });
-        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-        res.setHeader('Content-Disposition', 'attachment; filename="events_list.csv"');
-        res.send('\uFEFF' + csvContent);
+        const [rows] = await pool.query('SELECT * FROM halls');
+        res.json(rows);
     } catch (err) {
-        res.status(500).json({ error: 'Ошибка выгрузки CSV' });
+        res.status(500).json({ error: 'Ошибка получения списка залов' });
+    }
+});
+
+// Создание нового зала (только для администратора)
+app.post('/api/halls', authenticateToken, requireRole('admin'), async (req, res) => {
+    try {
+        const { name, capacity } = req.body;
+        if (!name || !capacity) {
+            return res.status(400).json({ error: 'Заполните name и capacity' });
+        }
+        
+        const [result] = await pool.query(
+            'INSERT INTO halls (name, capacity) VALUES (?, ?)',
+            [name, capacity]
+        );
+        
+        res.status(201).json({ 
+            id: result.insertId, 
+            name, 
+            capacity, 
+            message: 'Зал успешно создан' 
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Ошибка создания зала' });
     }
 });
 
