@@ -3,6 +3,16 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const pool = mysql.createPool({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  port: process.env.DB_PORT,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
 
 const app = express();
 app.use(express.json());
@@ -10,15 +20,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_key';
 
-// Подключение к пулу базы данных
-const pool = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'ticket_booking',
-    waitForConnections: true,
-    connectionLimit: 10
-});
+
 
 // --- МИДДЛВАРИ АВТОРИЗАЦИИ ---
 
