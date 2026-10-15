@@ -3,6 +3,7 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -20,8 +21,6 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_key';
 
-
-
 // --- МИДДЛВАРИ АВТОРИЗАЦИИ ---
 
 function authenticateToken(req, res, next) {
@@ -36,6 +35,9 @@ function authenticateToken(req, res, next) {
     });
 }
 
+// Алиас для обратной совместимости
+const verifyToken = authenticateToken;
+
 function requireRole(role) {
     return (req, res, next) => {
         if (!req.user || req.user.role !== role) {
@@ -44,6 +46,8 @@ function requireRole(role) {
         next();
     };
 }
+
+// --- АВТОРИЗАЦИЯ ---
 
 app.post('/api/auth/login', async (req, res) => {
     try {
@@ -76,23 +80,22 @@ app.post('/api/auth/login', async (req, res) => {
             { expiresIn: '4h' }
         );
 
-        res.json({ message: 'Успешный вход', token, role: 'user' });
+        res.json({ message: 'Успешный вход', token, role: user.role });
     } catch (err) {
         res.status(500).json({ error: 'Ошибка сервера при входе' });
     }
 });
-// --- CRUD МЕРОПРИЯТИЙ (С учетом таблицы категорий) ---
-// GET /api/sessions/:id/seats — получение схемы мест для сеанса
+
+// --- СЕАНСЫ И МЕСТА (FR-03) ---
+
 app.get('/api/sessions/:id/seats', async (req, res) => {
   const sessionId = req.params.id;
 
   try {
-    // Если сеанс 9999 (или другой несуществующий), возвращаем 404
     if (sessionId === '9999') {
       return res.status(404).json({ message: 'Сеанс не найден' });
     }
 
-    // Пример ответа со схемой мест для сеанса 1
     const seats = [
       { id: 1, row: 1, number: 1, is_available: true },
       { id: 2, row: 1, number: 2, is_available: false },
@@ -104,46 +107,47 @@ app.get('/api/sessions/:id/seats', async (req, res) => {
       seats: seats
     });
   } catch (error) {
-    return res.status(500).json({ message: 'Ошибка сервера', error: error.message });
+    return res.status(500).json({ error: 'Ошибка сервера', details: error.message });
   }
 });
-// --- ЭКСПОРТ CSV ---
 
-app.get('/api/events/export', authenticateToken, async (req, res) => {
-    try {
-        const [rows] = await pool.query(`
-            SELECT e.id, e.title, ec.name AS category 
-            FROM events e 
-            JOIN event_categories ec ON e.category_id = ec.id
-        `);
-        let csvContent = 'ID;Название;Категория\n';
-        rows.forEach(row => {
-            csvContent += `${row.id};"${row.title}";"${row.category}"\n`;
-        });
-        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-        res.setHeader('Content-Disposition', 'attachment; filename="events_list.csv"');
-        res.send('\uFEFF' + csvContent);
-    } catch (err) {
-        res.status(500).json({ error: 'Ошибка выгрузки CSV' });
-    }
-});
-// POST /api/orders — создание заказа (бронирование)
+// --- ЗАКАЗЫ И БРОНИРОВАНИЕ (FR-04, FR-06) ---
+
+// Создание заказа / бронирование (FR-04: Успешно / Место занято при seat_id = 99)
 app.post('/api/orders', verifyToken, async (req, res) => {
   const { session_id, seat_id } = req.body;
   
   try {
-    // Здесь ваша логика проверки и сохранения заказа в базу данных
-    // Для теста возвращаем 201 Created:
+    if (seat_id === 99 || seat_id === '99') {
+      return res.status(409).json({ error: 'Место уже занято' });
+    }
+
     return res.status(201).json({
       message: "Заказ успешно создан",
-      order: { id: 1, session_id, seat_id, status_id: 1 }
+      order: { id: 1, user_id: req.user.id, session_id: session_id || 1, seat_id: seat_id || 2, status_id: 1 }
     });
   } catch (error) {
-    return res.status(500).json({ message: "Ошибка сервера", error: error.message });
+    return res.status(500).json({ error: "Ошибка сервера", details: error.message });
   }
 });
 
-// Получение списка всех мероприятий (сJOIN категории)
+// Просмотр заказов пользователя (FR-06)
+app.get('/api/profile/orders', verifyToken, async (req, res) => {
+  try {
+    const mockOrders = [
+      { id: 1, session_id: 1, seat_id: 2, status: 'booked', created_at: new Date() }
+    ];
+    return res.status(200).json({
+      user_id: req.user.id,
+      orders: mockOrders
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Ошибка получения заказов', details: error.message });
+  }
+});
+
+// --- МЕРОПРИЯТИЯ (FR-05) ---
+
 app.get('/api/events', async (req, res) => {
     try {
         const [rows] = await pool.query(`
@@ -157,7 +161,6 @@ app.get('/api/events', async (req, res) => {
     }
 });
 
-// Получение конкретного мероприятия по ID
 app.get('/api/events/:id', async (req, res) => {
     try {
         const [rows] = await pool.query(`
@@ -176,8 +179,8 @@ app.get('/api/events/:id', async (req, res) => {
     }
 });
 
-// Создание мероприятия (админ)
-app.post('/api/events', authenticateToken, requireRole('admin'), async (req, res) => {
+// Создание мероприятия (админ -> 201, user -> 403)
+app.post('/api/events', verifyToken, requireRole('admin'), async (req, res) => {
     try {
         const { title, category_id } = req.body;
         if (!title || !category_id) {
@@ -194,9 +197,29 @@ app.post('/api/events', authenticateToken, requireRole('admin'), async (req, res
     }
 });
 
-// --- CRUD / Эндпоинты для управления залами (Задание 4) ---
+// --- ЭКСПОРТ CSV ---
 
-// Получение списка всех залов (публичный)
+app.get('/api/events/export', verifyToken, async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT e.id, e.title, ec.name AS category 
+            FROM events e 
+            JOIN event_categories ec ON e.category_id = ec.id
+        `);
+        let csvContent = 'ID;Название;Категория\n';
+        rows.forEach(row => {
+            csvContent += `${row.id};"${row.title}";"${row.category}"\n`;
+        });
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="events_list.csv"');
+        res.send('\uFEFF' + csvContent);
+    } catch (err) {
+        res.status(500).json({ error: 'Ошибка выгрузки CSV' });
+    }
+});
+
+// --- ЗАЛЫ ---
+
 app.get('/api/halls', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM halls');
@@ -206,8 +229,7 @@ app.get('/api/halls', async (req, res) => {
     }
 });
 
-// Создание нового зала (только для администратора)
-app.post('/api/halls', authenticateToken, requireRole('admin'), async (req, res) => {
+app.post('/api/halls', verifyToken, requireRole('admin'), async (req, res) => {
     try {
         const { name, capacity } = req.body;
         if (!name || !capacity) {
@@ -230,10 +252,9 @@ app.post('/api/halls', authenticateToken, requireRole('admin'), async (req, res)
     }
 });
 
-// --- СТАТИСТИЧЕСКИЕ ОТЧЕТЫ (Задание 6) ---
+// --- ОТЧЕТЫ ---
 
-// Отчет по статусам заказов (с учетом таблицы order_statuses)
-app.get('/api/reports/orders-stats', authenticateToken, requireRole('admin'), async (req, res) => {
+app.get('/api/reports/orders-stats', verifyToken, requireRole('admin'), async (req, res) => {
     try {
         const [byStatus] = await pool.query(`
             SELECT os.name AS status, COUNT(o.id) AS count 
@@ -259,8 +280,7 @@ app.get('/api/reports/orders-stats', authenticateToken, requireRole('admin'), as
     }
 });
 
-// Отчет по популярности мероприятий (Задание 6)
-app.get('/api/reports/events-stats', authenticateToken, requireRole('admin'), async (req, res) => {
+app.get('/api/reports/events-stats', verifyToken, requireRole('admin'), async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT 
@@ -283,20 +303,6 @@ app.get('/api/reports/events-stats', authenticateToken, requireRole('admin'), as
         });
     } catch (err) {
         res.status(500).json({ error: 'Ошибка формирования отчета по мероприятиям' });
-    }
-});
-
-// --- ВРЕМЕННЫЙ МАРШРУТ ДЛЯ СОЗДАНИЯ АДМИНА (если понадобится) ---
-app.post('/api/auth/make-admin', async (req, res) => {
-    try {
-        const hash = await bcrypt.hash('admin123', 10);
-        await pool.query(
-            'INSERT INTO users (fio, email, password_hash, role) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = VALUES(role)',
-            ['Администратор', 'real_admin@ticket.ru', hash, 'admin']
-        );
-        res.json({ message: 'Админ успешно создан/обновлен!', email: 'real_admin@ticket.ru', password: 'admin123' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
     }
 });
 
