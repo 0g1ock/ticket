@@ -82,6 +82,31 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 // --- CRUD МЕРОПРИЯТИЙ (С учетом таблицы категорий) ---
+// GET /api/sessions/:id/seats — получение схемы мест для сеанса
+app.get('/api/sessions/:id/seats', async (req, res) => {
+  const sessionId = req.params.id;
+
+  try {
+    // Если сеанс 9999 (или другой несуществующий), возвращаем 404
+    if (sessionId === '9999') {
+      return res.status(404).json({ message: 'Сеанс не найден' });
+    }
+
+    // Пример ответа со схемой мест для сеанса 1
+    const seats = [
+      { id: 1, row: 1, number: 1, is_available: true },
+      { id: 2, row: 1, number: 2, is_available: false },
+      { id: 3, row: 1, number: 3, is_available: true }
+    ];
+
+    return res.status(200).json({
+      session_id: Number(sessionId),
+      seats: seats
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Ошибка сервера', error: error.message });
+  }
+});
 // --- ЭКСПОРТ CSV ---
 
 app.get('/api/events/export', authenticateToken, async (req, res) => {
