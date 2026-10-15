@@ -147,7 +147,19 @@ app.get('/api/profile/orders', verifyToken, async (req, res) => {
 });
 
 // --- МЕРОПРИЯТИЯ (FR-05) ---
-
+// --- МАРШРУТ ДЛЯ СОЗДАНИЯ АДМИНА ---
+app.post('/api/auth/make-admin', async (req, res) => {
+    try {
+        const hash = await bcrypt.hash('admin123', 10);
+        await pool.query(
+            'INSERT INTO users (fio, email, password_hash, role) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = VALUES(role)',
+            ['Администратор', 'real_admin@ticket.ru', hash, 'admin']
+        );
+        res.json({ message: 'Админ успешно создан/обновлен!', email: 'real_admin@ticket.ru', password: 'admin123' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 app.get('/api/events', async (req, res) => {
     try {
         const [rows] = await pool.query(`
