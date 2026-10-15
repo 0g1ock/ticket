@@ -86,6 +86,20 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
+// Маршрут для создания администратора
+app.post('/api/auth/make-admin', async (req, res) => {
+    try {
+        const hash = await bcrypt.hash('admin123', 10);
+        await pool.query(
+            'INSERT INTO users (fio, email, password_hash, role) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = VALUES(role)',
+            ['Администратор', 'real_admin@ticket.ru', hash, 'admin']
+        );
+        res.json({ message: 'Админ успешно создан/обновлен!', email: 'real_admin@ticket.ru', password: 'admin123' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- СЕАНСЫ И МЕСТА (FR-03) ---
 
 app.get('/api/sessions/:id/seats', async (req, res) => {
@@ -113,7 +127,6 @@ app.get('/api/sessions/:id/seats', async (req, res) => {
 
 // --- ЗАКАЗЫ И БРОНИРОВАНИЕ (FR-04, FR-06) ---
 
-// Создание заказа / бронирование (FR-04: Успешно / Место занято при seat_id = 99)
 app.post('/api/orders', verifyToken, async (req, res) => {
   const { session_id, seat_id } = req.body;
   
@@ -131,7 +144,6 @@ app.post('/api/orders', verifyToken, async (req, res) => {
   }
 });
 
-// Просмотр заказов пользователя (FR-06)
 app.get('/api/profile/orders', verifyToken, async (req, res) => {
   try {
     const mockOrders = [
@@ -147,19 +159,7 @@ app.get('/api/profile/orders', verifyToken, async (req, res) => {
 });
 
 // --- МЕРОПРИЯТИЯ (FR-05) ---
-// --- МАРШРУТ ДЛЯ СОЗДАНИЯ АДМИНА ---
-app.post('/api/auth/make-admin', async (req, res) => {
-    try {
-        const hash = await bcrypt.hash('admin123', 10);
-        await pool.query(
-            'INSERT INTO users (fio, email, password_hash, role) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = VALUES(role)',
-            ['Администратор', 'real_admin@ticket.ru', hash, 'admin']
-        );
-        res.json({ message: 'Админ успешно создан/обновлен!', email: 'real_admin@ticket.ru', password: 'admin123' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
+
 app.get('/api/events', async (req, res) => {
     try {
         const [rows] = await pool.query(`
@@ -191,7 +191,6 @@ app.get('/api/events/:id', async (req, res) => {
     }
 });
 
-// Создание мероприятия (админ -> 201, user -> 403)
 app.post('/api/events', verifyToken, requireRole('admin'), async (req, res) => {
     try {
         const { title, category_id } = req.body;
