@@ -127,6 +127,21 @@ app.get('/api/events/export', authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Ошибка выгрузки CSV' });
     }
 });
+// POST /api/orders — создание заказа (бронирование)
+app.post('/api/orders', verifyToken, async (req, res) => {
+  const { session_id, seat_id } = req.body;
+  
+  try {
+    // Здесь ваша логика проверки и сохранения заказа в базу данных
+    // Для теста возвращаем 201 Created:
+    return res.status(201).json({
+      message: "Заказ успешно создан",
+      order: { id: 1, session_id, seat_id, status_id: 1 }
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Ошибка сервера", error: error.message });
+  }
+});
 
 // Получение списка всех мероприятий (сJOIN категории)
 app.get('/api/events', async (req, res) => {
